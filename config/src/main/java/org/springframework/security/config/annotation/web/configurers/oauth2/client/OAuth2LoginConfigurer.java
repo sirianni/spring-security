@@ -33,6 +33,7 @@ import org.springframework.security.oauth2.client.authentication.OAuth2LoginAuth
 import org.springframework.security.oauth2.client.endpoint.NimbusAuthorizationCodeTokenResponseClient;
 import org.springframework.security.oauth2.client.endpoint.OAuth2AccessTokenResponseClient;
 import org.springframework.security.oauth2.client.endpoint.OAuth2AuthorizationCodeGrantRequest;
+import org.springframework.security.oauth2.client.oidc.authentication.JwtDecoderRepository;
 import org.springframework.security.oauth2.client.oidc.authentication.OidcAuthorizationCodeAuthenticationProvider;
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserRequest;
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserService;
@@ -304,6 +305,7 @@ public final class OAuth2LoginConfigurer<B extends HttpSecurityBuilder<B>> exten
 	 * Configuration options for the Authorization Server's UserInfo Endpoint.
 	 */
 	public class UserInfoEndpointConfig {
+		private JwtDecoderRepository jwtDecoderRepository;
 		private OAuth2UserService<OAuth2UserRequest, OAuth2User> userService;
 		private OAuth2UserService<OidcUserRequest, OidcUser> oidcUserService;
 		private Map<String, Class<? extends OAuth2User>> customUserTypes = new HashMap<>();
@@ -359,6 +361,12 @@ public final class OAuth2LoginConfigurer<B extends HttpSecurityBuilder<B>> exten
 		public UserInfoEndpointConfig userAuthoritiesMapper(GrantedAuthoritiesMapper userAuthoritiesMapper) {
 			Assert.notNull(userAuthoritiesMapper, "userAuthoritiesMapper cannot be null");
 			OAuth2LoginConfigurer.this.getBuilder().setSharedObject(GrantedAuthoritiesMapper.class, userAuthoritiesMapper);
+			return this;
+		}
+
+		public UserInfoEndpointConfig jwtDecoderRepository(JwtDecoderRepository jwtDecoderRepository) {
+			Assert.notNull(jwtDecoderRepository, "jwtDecoderRepository cannot be null");
+			this.jwtDecoderRepository = jwtDecoderRepository;
 			return this;
 		}
 
@@ -425,6 +433,9 @@ public final class OAuth2LoginConfigurer<B extends HttpSecurityBuilder<B>> exten
 				new OidcAuthorizationCodeAuthenticationProvider(accessTokenResponseClient, oidcUserService);
 			if (userAuthoritiesMapper != null) {
 				oidcAuthorizationCodeAuthenticationProvider.setAuthoritiesMapper(userAuthoritiesMapper);
+			}
+			if (this.userInfoEndpointConfig.jwtDecoderRepository != null) {
+				oidcAuthorizationCodeAuthenticationProvider.setJwtDecoderRepository(this.userInfoEndpointConfig.jwtDecoderRepository);
 			}
 			http.authenticationProvider(this.postProcess(oidcAuthorizationCodeAuthenticationProvider));
 		} else {

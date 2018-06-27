@@ -39,17 +39,13 @@ import org.springframework.security.oauth2.core.oidc.endpoint.OidcParameterNames
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
-import org.springframework.security.oauth2.jwt.NimbusJwtDecoderJwkSupport;
 import org.springframework.util.Assert;
 import org.springframework.util.CollectionUtils;
-import org.springframework.util.StringUtils;
 
 import java.net.URL;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * An implementation of an {@link AuthenticationProvider}
@@ -79,10 +75,9 @@ public class OidcAuthorizationCodeAuthenticationProvider implements Authenticati
 	private static final String INVALID_STATE_PARAMETER_ERROR_CODE = "invalid_state_parameter";
 	private static final String INVALID_REDIRECT_URI_PARAMETER_ERROR_CODE = "invalid_redirect_uri_parameter";
 	private static final String INVALID_ID_TOKEN_ERROR_CODE = "invalid_id_token";
-	private static final String MISSING_SIGNATURE_VERIFIER_ERROR_CODE = "missing_signature_verifier";
 	private final OAuth2AccessTokenResponseClient<OAuth2AuthorizationCodeGrantRequest> accessTokenResponseClient;
 	private final OAuth2UserService<OidcUserRequest, OidcUser> userService;
-	private final Map<String, JwtDecoder> jwtDecoders = new ConcurrentHashMap<>();
+	private JwtDecoderRepository jwtDecoderRepository = new NimbusJwtDecoderRepository();
 	private GrantedAuthoritiesMapper authoritiesMapper = (authorities -> authorities);
 
 	/**
@@ -154,7 +149,7 @@ public class OidcAuthorizationCodeAuthenticationProvider implements Authenticati
 			throw new OAuth2AuthenticationException(invalidIdTokenError, invalidIdTokenError.toString());
 		}
 
-		JwtDecoder jwtDecoder = this.getJwtDecoder(clientRegistration);
+		JwtDecoder jwtDecoder = this.jwtDecoderRepository.getJwtDecoder(clientRegistration);
 		Jwt jwt = jwtDecoder.decode((String) accessTokenResponse.getAdditionalParameters().get(OidcParameterNames.ID_TOKEN));
 		OidcIdToken idToken = new OidcIdToken(jwt.getTokenValue(), jwt.getIssuedAt(), jwt.getExpiresAt(), jwt.getClaims());
 
@@ -188,27 +183,13 @@ public class OidcAuthorizationCodeAuthenticationProvider implements Authenticati
 		this.authoritiesMapper = authoritiesMapper;
 	}
 
+	public void setJwtDecoderRepository(JwtDecoderRepository jwtDecoderRepository) {
+		this.jwtDecoderRepository = jwtDecoderRepository;
+	}
+
 	@Override
 	public boolean supports(Class<?> authentication) {
 		return OAuth2LoginAuthenticationToken.class.isAssignableFrom(authentication);
-	}
-
-	private JwtDecoder getJwtDecoder(ClientRegistration clientRegistration) {
-		JwtDecoder jwtDecoder = this.jwtDecoders.get(clientRegistration.getRegistrationId());
-		if (jwtDecoder == null) {
-			if (!StringUtils.hasText(clientRegistration.getProviderDetails().getJwkSetUri())) {
-				OAuth2Error oauth2Error = new OAuth2Error(
-					MISSING_SIGNATURE_VERIFIER_ERROR_CODE,
-					"Failed to find a Signature Verifier for Client Registration: '" +
-						clientRegistration.getRegistrationId() + "'. Check to ensure you have configured the JwkSet URI.",
-					null
-				);
-				throw new OAuth2AuthenticationException(oauth2Error, oauth2Error.toString());
-			}
-			jwtDecoder = new NimbusJwtDecoderJwkSupport(clientRegistration.getProviderDetails().getJwkSetUri());
-			this.jwtDecoders.put(clientRegistration.getRegistrationId(), jwtDecoder);
-		}
-		return jwtDecoder;
 	}
 
 	private void validateIdToken(OidcIdToken idToken, ClientRegistration clientRegistration) {
