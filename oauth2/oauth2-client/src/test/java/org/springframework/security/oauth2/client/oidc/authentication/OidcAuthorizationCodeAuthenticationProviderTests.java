@@ -72,7 +72,6 @@ import static org.mockito.Mockito.when;
 @RunWith(PowerMockRunner.class)
 public class OidcAuthorizationCodeAuthenticationProviderTests {
 	private ClientRegistration clientRegistration;
-	private ClientRegistration.ProviderDetails providerDetails;
 	private OAuth2AuthorizationRequest authorizationRequest;
 	private OAuth2AuthorizationResponse authorizationResponse;
 	private OAuth2AuthorizationExchange authorizationExchange;
@@ -82,6 +81,7 @@ public class OidcAuthorizationCodeAuthenticationProviderTests {
 	private OAuth2RefreshToken refreshToken;
 	private OAuth2UserService<OidcUserRequest, OidcUser> userService;
 	private OidcAuthorizationCodeAuthenticationProvider authenticationProvider;
+	private JwtDecoderRepository jwtDecoderRepository;
 
 	@Rule
 	public ExpectedException exception = ExpectedException.none();
@@ -90,7 +90,6 @@ public class OidcAuthorizationCodeAuthenticationProviderTests {
 	@SuppressWarnings("unchecked")
 	public void setUp() throws Exception {
 		this.clientRegistration = mock(ClientRegistration.class);
-		this.providerDetails = mock(ClientRegistration.ProviderDetails.class);
 		this.authorizationRequest = mock(OAuth2AuthorizationRequest.class);
 		this.authorizationResponse = mock(OAuth2AuthorizationResponse.class);
 		this.authorizationExchange = new OAuth2AuthorizationExchange(this.authorizationRequest, this.authorizationResponse);
@@ -99,13 +98,17 @@ public class OidcAuthorizationCodeAuthenticationProviderTests {
 		this.accessToken = mock(OAuth2AccessToken.class);
 		this.refreshToken = mock(OAuth2RefreshToken.class);
 		this.userService = mock(OAuth2UserService.class);
+		this.jwtDecoderRepository = mock(JwtDecoderRepository.class);
 		this.authenticationProvider = PowerMockito.spy(
 			new OidcAuthorizationCodeAuthenticationProvider(this.accessTokenResponseClient, this.userService));
+		this.authenticationProvider.setJwtDecoderRepository(jwtDecoderRepository);
+
+		ClientRegistration.ProviderDetails providerDetails = mock(ClientRegistration.ProviderDetails.class);
 
 		when(this.clientRegistration.getRegistrationId()).thenReturn("client-registration-id-1");
 		when(this.clientRegistration.getClientId()).thenReturn("client1");
-		when(this.clientRegistration.getProviderDetails()).thenReturn(this.providerDetails);
-		when(this.providerDetails.getJwkSetUri()).thenReturn("https://provider.com/oauth2/keys");
+		when(this.clientRegistration.getProviderDetails()).thenReturn(providerDetails);
+		when(providerDetails.getJwkSetUri()).thenReturn("https://provider.com/oauth2/keys");
 		when(this.authorizationRequest.getScopes()).thenReturn(new LinkedHashSet<>(Arrays.asList("openid", "profile", "email")));
 		when(this.authorizationRequest.getState()).thenReturn("12345");
 		when(this.authorizationResponse.getState()).thenReturn("12345");
@@ -195,17 +198,6 @@ public class OidcAuthorizationCodeAuthenticationProviderTests {
 		this.exception.expectMessage(containsString("invalid_id_token"));
 
 		when(this.accessTokenResponse.getAdditionalParameters()).thenReturn(Collections.emptyMap());
-
-		this.authenticationProvider.authenticate(
-			new OAuth2LoginAuthenticationToken(this.clientRegistration, this.authorizationExchange));
-	}
-
-	@Test
-	public void authenticateWhenJwkSetUriNotSetThenThrowOAuth2AuthenticationException() {
-		this.exception.expect(OAuth2AuthenticationException.class);
-		this.exception.expectMessage(containsString("missing_signature_verifier"));
-
-		when(this.providerDetails.getJwkSetUri()).thenReturn(null);
 
 		this.authenticationProvider.authenticate(
 			new OAuth2LoginAuthenticationToken(this.clientRegistration, this.authorizationExchange));
@@ -414,6 +406,6 @@ public class OidcAuthorizationCodeAuthenticationProviderTests {
 
 		JwtDecoder jwtDecoder = mock(JwtDecoder.class);
 		when(jwtDecoder.decode(anyString())).thenReturn(idToken);
-		PowerMockito.doReturn(jwtDecoder).when(this.authenticationProvider, "getJwtDecoder", any(ClientRegistration.class));
+		when(jwtDecoderRepository.getJwtDecoder(any(ClientRegistration.class))).thenReturn(jwtDecoder);
 	}
 }

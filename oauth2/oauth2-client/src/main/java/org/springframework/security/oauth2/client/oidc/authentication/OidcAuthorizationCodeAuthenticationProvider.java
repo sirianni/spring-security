@@ -74,10 +74,9 @@ public class OidcAuthorizationCodeAuthenticationProvider implements Authenticati
 	private static final String INVALID_STATE_PARAMETER_ERROR_CODE = "invalid_state_parameter";
 	private static final String INVALID_REDIRECT_URI_PARAMETER_ERROR_CODE = "invalid_redirect_uri_parameter";
 	private static final String INVALID_ID_TOKEN_ERROR_CODE = "invalid_id_token";
-	private static final String MISSING_SIGNATURE_VERIFIER_ERROR_CODE = "missing_signature_verifier";
 	private final OAuth2AccessTokenResponseClient<OAuth2AuthorizationCodeGrantRequest> accessTokenResponseClient;
 	private final OAuth2UserService<OidcUserRequest, OidcUser> userService;
-	private final Map<String, JwtDecoder> jwtDecoders = new ConcurrentHashMap<>();
+	private JwtDecoderRepository jwtDecoderRepository = new NimbusJwtDecoderRepository();
 	private GrantedAuthoritiesMapper authoritiesMapper = (authorities -> authorities);
 
 	/**
@@ -178,35 +177,21 @@ public class OidcAuthorizationCodeAuthenticationProvider implements Authenticati
 		this.authoritiesMapper = authoritiesMapper;
 	}
 
+	public void setJwtDecoderRepository(JwtDecoderRepository jwtDecoderRepository) {
+		this.jwtDecoderRepository = jwtDecoderRepository;
+	}
+
 	@Override
 	public boolean supports(Class<?> authentication) {
 		return OAuth2LoginAuthenticationToken.class.isAssignableFrom(authentication);
 	}
 
 	private OidcIdToken createOidcToken(ClientRegistration clientRegistration, OAuth2AccessTokenResponse accessTokenResponse) {
-		JwtDecoder jwtDecoder = getJwtDecoder(clientRegistration);
+		JwtDecoder jwtDecoder = jwtDecoderRepository.getJwtDecoder(clientRegistration);
 		Jwt jwt = jwtDecoder.decode((String) accessTokenResponse.getAdditionalParameters().get(
 				OidcParameterNames.ID_TOKEN));
 		OidcIdToken idToken = new OidcIdToken(jwt.getTokenValue(), jwt.getIssuedAt(), jwt.getExpiresAt(), jwt.getClaims());
 		OidcTokenValidator.validateIdToken(idToken, clientRegistration);
 		return idToken;
-	}
-
-	private JwtDecoder getJwtDecoder(ClientRegistration clientRegistration) {
-		JwtDecoder jwtDecoder = this.jwtDecoders.get(clientRegistration.getRegistrationId());
-		if (jwtDecoder == null) {
-			if (!StringUtils.hasText(clientRegistration.getProviderDetails().getJwkSetUri())) {
-				OAuth2Error oauth2Error = new OAuth2Error(
-						MISSING_SIGNATURE_VERIFIER_ERROR_CODE,
-						"Failed to find a Signature Verifier for Client Registration: '" +
-								clientRegistration.getRegistrationId() + "'. Check to ensure you have configured the JwkSet URI.",
-						null
-				);
-				throw new OAuth2AuthenticationException(oauth2Error, oauth2Error.toString());
-			}
-			jwtDecoder = new NimbusJwtDecoderJwkSupport(clientRegistration.getProviderDetails().getJwkSetUri());
-			this.jwtDecoders.put(clientRegistration.getRegistrationId(), jwtDecoder);
-		}
-		return jwtDecoder;
 	}
 }

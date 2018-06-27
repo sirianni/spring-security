@@ -18,7 +18,6 @@ package org.springframework.security.config.annotation.web.configurers.oauth2.cl
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.springframework.beans.PropertyAccessorFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Bean;
@@ -35,6 +34,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.authority.mapping.GrantedAuthoritiesMapper;
 import org.springframework.security.oauth2.client.endpoint.OAuth2AccessTokenResponseClient;
 import org.springframework.security.oauth2.client.endpoint.OAuth2AuthorizationCodeGrantRequest;
+import org.springframework.security.oauth2.client.oidc.authentication.JwtDecoderRepository;
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserRequest;
 import org.springframework.security.oauth2.client.registration.ClientRegistration;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
@@ -43,7 +43,6 @@ import org.springframework.security.oauth2.client.userinfo.OAuth2UserRequest;
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserService;
 import org.springframework.security.oauth2.client.web.AuthorizationRequestRepository;
 import org.springframework.security.oauth2.client.web.HttpSessionOAuth2AuthorizationRequestRepository;
-import org.springframework.security.oauth2.client.web.OAuth2LoginAuthenticationFilter;
 import org.springframework.security.oauth2.core.OAuth2AccessToken;
 import org.springframework.security.oauth2.core.endpoint.OAuth2AccessTokenResponse;
 import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
@@ -201,7 +200,6 @@ public class OAuth2LoginConfigurerTests {
 	public void oidcLogin() throws Exception {
 		// setup application context
 		loadConfig(OAuth2LoginConfig.class);
-		registerJwtDecoder();
 
 		// setup authorization request
 		OAuth2AuthorizationRequest authorizationRequest = createOAuth2AuthorizationRequest("openid");
@@ -228,7 +226,6 @@ public class OAuth2LoginConfigurerTests {
 	public void oidcLoginCustomWithConfigurer() throws Exception {
 		// setup application context
 		loadConfig(OAuth2LoginConfigCustomWithConfigurer.class);
-		registerJwtDecoder();
 
 		// setup authorization request
 		OAuth2AuthorizationRequest authorizationRequest = createOAuth2AuthorizationRequest("openid");
@@ -255,7 +252,6 @@ public class OAuth2LoginConfigurerTests {
 	public void oidcLoginCustomWithBeanRegistration() throws Exception {
 		// setup application context
 		loadConfig(OAuth2LoginConfigCustomWithBeanRegistration.class);
-		registerJwtDecoder();
 
 		// setup authorization request
 		OAuth2AuthorizationRequest authorizationRequest = createOAuth2AuthorizationRequest("openid");
@@ -284,25 +280,6 @@ public class OAuth2LoginConfigurerTests {
 		applicationContext.refresh();
 		applicationContext.getAutowireCapableBeanFactory().autowireBean(this);
 		this.context = applicationContext;
-	}
-
-	private void registerJwtDecoder() {
-		JwtDecoder decoder = token -> {
-			Map<String, Object> claims = new HashMap<>();
-			claims.put(IdTokenClaimNames.SUB, "sub123");
-			claims.put(IdTokenClaimNames.ISS, "http://localhost/iss");
-			claims.put(IdTokenClaimNames.AUD, Arrays.asList("clientId", "a", "u", "d"));
-			claims.put(IdTokenClaimNames.AZP, "clientId");
-			return new Jwt("token123", Instant.now(), Instant.now().plusSeconds(3600),
-					Collections.singletonMap("header1", "value1"), claims);
-		};
-		this.springSecurityFilterChain.getFilters("/login/oauth2/code/google").stream()
-				.filter(OAuth2LoginAuthenticationFilter.class::isInstance)
-				.findFirst()
-				.ifPresent(filter -> PropertyAccessorFactory.forDirectFieldAccess(filter)
-					.setPropertyValue(
-						"authenticationManager.providers[2].jwtDecoders['google']",
-						decoder));
 	}
 
 	private OAuth2AuthorizationRequest createOAuth2AuthorizationRequest(String... scopes) {
@@ -366,6 +343,23 @@ public class OAuth2LoginConfigurerTests {
 	}
 
 	private static abstract class CommonWebSecurityConfigurerAdapter extends WebSecurityConfigurerAdapter {
+
+		private JwtDecoderRepository jwtDecoderRepository = new JwtDecoderRepository() {
+			@Override
+			public JwtDecoder getJwtDecoder(ClientRegistration clientRegistration) {
+				assertThat(clientRegistration.getRegistrationId()).isEqualTo("google");
+				return token -> {
+					Map<String, Object> claims = new HashMap<>();
+					claims.put(IdTokenClaimNames.SUB, "sub123");
+					claims.put(IdTokenClaimNames.ISS, "http://localhost/iss");
+					claims.put(IdTokenClaimNames.AUD, Arrays.asList("clientId", "a", "u", "d"));
+					claims.put(IdTokenClaimNames.AZP, "clientId");
+					return new Jwt("token123", Instant.now(), Instant.now().plusSeconds(3600),
+							Collections.singletonMap("header1", "value1"), claims);
+				};
+			}
+		};
+
 		@Override
 		protected void configure(HttpSecurity http) throws Exception {
 			http
@@ -377,6 +371,7 @@ public class OAuth2LoginConfigurerTests {
 						.accessTokenResponseClient(createOauth2AccessTokenResponseClient())
 						.and()
 					.userInfoEndpoint()
+						.jwtDecoderRepository(jwtDecoderRepository)
 						.userService(createOauth2UserService())
 						.oidcUserService(createOidcUserService());
 		}
